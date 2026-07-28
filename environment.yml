@@ -1,0 +1,9 @@
+name: streamlit-app
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - streamlit
+  - pandas
+  - requests
+  - pillow
