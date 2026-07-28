@@ -133,6 +133,22 @@ perché queste si sovrappongono (Panchine, Piatti doccia e Pozzi sarebbero tutti
 Nel CSV la categoria viene scritta come `Categoria > Sottocategoria, Categoria`,
 così il prodotto risulta assegnato sia alla sottocategoria che alla principale.
 
+## Creare un prodotto partendo da uno simile
+
+Nella pagina *Prodotto*, il menu **Copia i testi da un prodotto esistente**
+riempie il nuovo prodotto con **nome**, **breve descrizione** e **descrizione**
+di quello scelto. Lo stesso si fa dal *Catalogo* con il pulsante *Duplica* sulla
+scheda del prodotto.
+
+Viene copiato solo il testo. SKU, categoria, dimensioni, prezzo, link affiliato,
+immagini e tag restano da inserire, perché sono ciò che distingue un prodotto
+dall'altro — e lo SKU deve comunque essere nuovo.
+
+Cambiando la sorgente i testi si aggiornano, e scegliendo *— parti da zero —* il
+modulo torna vuoto. Dopo ogni salvataggio il modulo si ripulisce, quindi creando
+più varianti di fila si riparte sempre dal testo originale e non da quello
+appena modificato.
+
 ## SKU
 
 Lo SKU viene generato automaticamente e descrive il prodotto:

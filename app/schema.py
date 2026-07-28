@@ -136,6 +136,11 @@ SECTIONS: dict[str, list[Field]] = {
 FIELDS = [f for group in SECTIONS.values() for f in group]
 FIELDS_BY_NAME = {f.name: f for f in FIELDS}
 
+# Columns carried over when a product is created from an existing one. Only the
+# wording is reused: everything that identifies the product — SKU, link, prezzo,
+# dimensioni, immagini, categoria — has to be entered for the new one.
+DUPLICATED_COLUMNS = ('Nome', 'Breve descrizione', 'Descrizione')
+
 
 def empty_product() -> dict[str, str]:
     """A blank product row with every column present and defaults applied."""

@@ -21,7 +21,8 @@ import rules
 import sku as sku_codes
 import storage
 from categories import NO_SUBCATEGORY, format_value, load_codes, load_tree, split_value
-from schema import FIELDS_BY_NAME, IMAGES_COL, SECTIONS, TAGS_COL, empty_product
+from schema import (DUPLICATED_COLUMNS, FIELDS_BY_NAME, IMAGES_COL, SECTIONS, TAGS_COL,
+                    empty_product)
 
 NEW = '__new__'
 PAGES = ['Catalogo', 'Prodotto', 'Automazioni', 'Esporta']
@@ -99,6 +100,18 @@ def go(page: str, sku: str | None = None) -> None:
 
 # -------------------------------------------------------------------- helpers
 
+# Characters that would otherwise be read as Markdown when product text is
+# rendered. A trailing space alone is enough to break bold: "**testo **" leaves
+# the asterisks visible, because Markdown will not close emphasis after a space.
+MARKDOWN_SPECIALS = str.maketrans({character: '\\' + character
+                                   for character in r'\`*_[]()~|<>#'})
+
+
+def md(text: str) -> str:
+    """Make user-entered text safe to drop into a Markdown string."""
+    return text.strip().translate(MARKDOWN_SPECIALS)
+
+
 def first_image(row: dict[str, str]) -> str | None:
     """Cover image, falling back to the product's image groups."""
     images = rules.effective_images(row['SKU'], row[IMAGES_COL],
@@ -141,6 +154,26 @@ def sku_widget(product: dict[str, str], values: dict[str, str], parent: str, chi
         st.caption('⚠️ Nessuna dimensione inserita: lo SKU conterrà 000.')
 
     return suggested
+
+
+def duplicate_picker(df: pd.DataFrame, skus: list[str]) -> str:
+    """Choose an existing product to copy the wording from. Returns its SKU."""
+    if df.empty:
+        return ''
+
+    names = {row['SKU']: row['Nome'] for row in df.to_dict('records')}
+    source = st.selectbox(
+        'Copia i testi da un prodotto esistente',
+        [''] + skus, key='dup_source',
+        format_func=lambda s: '— parti da zero —' if not s else f'{s} · {names.get(s, "")}',
+        help='Copia nome e descrizioni. Tutto il resto resta da compilare.',
+    )
+    if source:
+        st.caption('Copiati **nome**, **breve descrizione** e **descrizione** da '
+                   f'`{source}`. Categoria, dimensioni, prezzo, link e immagini '
+                   'restano da inserire.')
+
+    return source
 
 
 def price_label(row: dict[str, str]) -> str:
@@ -195,11 +228,17 @@ def page_catalogo(df: pd.DataFrame) -> None:
                     st.image(url, width='stretch')
                 else:
                     st.caption('— nessuna immagine —')
-                st.markdown(f'**{row["Nome"] or "(senza nome)"}**')
-                st.caption(f'{row["SKU"]} · {row["Categorie"].split(",")[0]}')
+                st.markdown(f'**{md(row["Nome"]) or "(senza nome)"}**')
+                st.caption(f'{md(row["SKU"])} · {md(row["Categorie"].split(",")[0])}')
                 st.markdown(price_label(row))
-                if st.button('Modifica', key=f'edit::{row["SKU"]}::{start}'):
+                edit, duplicate = st.columns(2)
+                if edit.button('Modifica', key=f'edit::{row["SKU"]}::{start}'):
                     go('Prodotto', row['SKU'])
+                if duplicate.button('Duplica', key=f'dup::{row["SKU"]}::{start}'):
+                    # Safe to write the picker's key here: that widget belongs to
+                    # the product page and has not been drawn in this run.
+                    st.session_state['dup_source'] = row['SKU']
+                    go('Prodotto', NEW)
 
 
 def page_prodotto(df: pd.DataFrame) -> None:
@@ -219,12 +258,24 @@ def page_prodotto(df: pd.DataFrame) -> None:
 
     is_new = selected == NEW
     product = empty_product() if is_new else storage.get_product(df, selected)
-    st.title('Nuovo prodotto' if is_new else product['Nome'] or selected)
+    st.title('Nuovo prodotto' if is_new else md(product['Nome']) or selected)
+
+    source = duplicate_picker(df, skus) if is_new else ''
+    if source:
+        origin = storage.get_product(df, source)
+        for column in DUPLICATED_COLUMNS:
+            product[column] = origin[column]
 
     # Widget keys are scoped to the product so switching selection resets them
-    # instead of carrying the previous product's text over.
+    # instead of carrying the previous product's text over. For a new product the
+    # scope also covers the product being copied from and a counter bumped after
+    # each save, because a widget keeps its first value for as long as its key
+    # stays the same — without this the form would keep showing the text of the
+    # previous source, or of the product just saved.
+    scope = selected if not is_new else f'{NEW}::{source}::{st.session_state.get("form_gen", 0)}'
+
     def key(name: str) -> str:
-        return f'{selected}::{name}'
+        return f'{scope}::{name}'
 
     # Category comes first: the SKU is built from it, so it has to be known
     # before the identification fields are drawn further down.
@@ -318,12 +369,17 @@ def page_prodotto(df: pd.DataFrame) -> None:
         elif is_new and values['SKU'].strip() in skus:
             st.error(f'Lo SKU {values["SKU"]} esiste già.')
         else:
-            updated = product | values
+            # Trailing spaces are invisible in the form but survive into the CSV
+            # and into WooCommerce, so they are removed on the way in.
+            updated = product | {name: value.strip() for name, value in values.items()}
             commit(storage.upsert(df, updated, original_sku='' if is_new else selected))
             # A hand-edited SKU must carry its image groups across with it.
             if not is_new and values['SKU'].strip() != selected:
                 commit_rules(group_members=rules.rename_sku(
                     selected, values['SKU'].strip(), cached_group_members()))
+            # Retire the current blank-form widgets so the next new product does
+            # not inherit what was just typed here.
+            st.session_state['form_gen'] = st.session_state.get('form_gen', 0) + 1
             st.session_state.editing = values['SKU'].strip()
             st.success('Prodotto salvato.')
             st.rerun()
